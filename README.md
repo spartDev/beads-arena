@@ -8,16 +8,9 @@ exactly one PR through TDD and three parallel review lenses, a referee drives CI
 thread, humans decide only what is theirs to decide, shipped work is validated against its value
 hypothesis, and every season ends by encoding its lessons into the factory itself.
 
-```
- FRAME            SLICE             BUILD (per ticket)                     REFEREE          SHIP              LEARN
- grill with docs  tracer bullets    brief > red > green > prove            CI classified    release           retro
- spec             bd create --graph   > {standards | spec | doubt} > PR    every thread     deploy (gate)     learning beads
-   [human gate]     [human gate]    bout: N candidates > judge > graft     answered         bake (timer)      checks > docs
-                                                                           > pit: human     validate value
-                                                                             merges
- ───────────────────────────── Beads: arena-season molecule ─────────────────────────────────────────────────────────
-                                    arena-round wisp per ticket, arena-bout, arena-patrol
-```
+![Arena factory map: frame, slice, build, ship, validate and learn, with Beads holding every step](docs/factory.svg)
+
+Read it left to right. Dashed pink arrows wait for a human; the dashed gold line is the learning loop that feeds the next season. Open the SVG for full size.
 
 ## Why Beads
 
