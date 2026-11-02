@@ -1,0 +1,13 @@
+{
+  "name": "arena",
+  "version": "0.1.0",
+  "description": "A Beads-backed SDLC arena for Claude Code: frame with docs, slice into tracer-bullet tickets, one PR per ticket, adversarial review, referee on CI and review threads, human gates, value validation and a learning loop. Beads (bd) is the single source of truth for every ticket.",
+  "author": {
+    "name": "Thomas Roux",
+    "url": "https://github.com/SpartDev"
+  },
+  "homepage": "https://github.com/SpartDev/beads-arena",
+  "repository": "https://github.com/SpartDev/beads-arena",
+  "license": "MIT",
+  "keywords": ["beads", "sdlc", "software-factory", "tdd", "code-review", "agents", "workflow"]
+}

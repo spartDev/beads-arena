@@ -1,0 +1,112 @@
+# arena-bout: N candidates attack the same ticket, a judge scores them against a rubric,
+# the winner becomes the base and the best ideas of the losers are grafted in by hand.
+#
+# Use it when one attempt would lock in the wrong shape: a new data model, a contested API,
+# an architecture decision, a spike. Not for routine tickets: a bout costs N times a round.
+#
+#   bd mol wisp arena-bout --var ticket=ar-a1b --var candidates=3
+
+formula = "arena-bout"
+description = "Bake-off for one high-uncertainty ticket: frame a rubric, fan out N isolated candidates, cross-judge, pick a base, graft, verify."
+version = 1
+type = "workflow"
+phase = "vapor"
+
+[vars.ticket]
+description = "Bead id of the ticket or decision under contest"
+required = true
+pattern = "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+
+[vars.candidates]
+description = "Number of competing candidates (2 to 5)"
+default = "3"
+enum = ["2", "3", "4", "5"]
+
+[[steps]]
+id = "frame"
+title = "Frame the bout for {{ticket}}: artifact, rubric, arenas"
+labels = ["bout:frame"]
+description = """
+Every candidate gets the same prompt, so the prompt is the contract.
+1. Name the artifact each candidate produces (code on a branch, a design doc, a prototype).
+2. Write a rubric of 3 to 6 gradeable criteria to .arena/bout-{{ticket}}/rubric.md. Only the judge
+   receives it: never post it on a bead, candidates read beads.
+3. Give each candidate its own worktree and branch arena/{{ticket}}-c<n>.
+4. Vary the candidates on purpose: model tier, or an explicit design direction each. Directions go
+   in each candidate's own bead, never on {{ticket}}.
+
+## Acceptance Criteria
+- Rubric file written, not posted on any bead
+- One brief per candidate, ready to go into its candidate bead
+"""
+
+[[steps]]
+id = "candidates"
+title = "Candidates for {{ticket}}"
+needs = ["frame"]
+type = "epic"
+labels = ["bout:fanout", "arena:spawner"]
+description = """
+Spawner. Create {{candidates}} candidate beads as children of this step in one transaction:
+`bd create --graph` with nodes "Candidate <n> for {{ticket}}", parent_id = this step, label
+bout:candidate, each with its own direction and worktree in the description.
+Then spawn every candidate agent in one message, in the background, each pointed at its bead,
+the shared grounding and its own worktree. Each candidate commits its artifact on its branch
+and posts a rationale on its own candidate bead (never on {{ticket}}, never naming its model):
+what it built, what it rejected, what it is least sure of.
+This step closes once every candidate child is closed (a dropout is closed with reason "dropout").
+
+## Acceptance Criteria
+- {{candidates}} candidate children created and closed, dropouts noted
+"""
+
+[[steps]]
+id = "judge"
+title = "Cross-judge the candidates for {{ticket}}"
+needs = ["candidates"]
+labels = ["bout:judge"]
+description = """
+arena:judge (read-only, different model tier from the candidates) scores every candidate on every
+rubric criterion and recommends a base. In parallel, read every candidate end to end yourself and
+score them too. Agreement confirms the base. Disagreement means a bias or an ambiguous rubric:
+read both rationales before deciding.
+
+## Acceptance Criteria
+- Score table per criterion, from the judge and from the orchestrator, posted on {{ticket}}
+"""
+
+[[steps]]
+id = "graft"
+title = "Pick a base and graft for {{ticket}}"
+needs = ["judge"]
+labels = ["bout:graft"]
+description = """
+Pick the base a future maintainer can extend without breaking invariants. Tie: smaller API,
+cleaner boundary. Rename the base branch to arena/{{ticket}}-<slug> (the branch the round will
+use), then port one or two strengths per losing candidate into it by hand, so the result keeps one
+mental model. Converging candidates: ship the consensus, no graft. Wildly diverging candidates:
+the frame was under-specified, reframe and rerun instead of averaging.
+
+## Acceptance Criteria
+- Base chosen and every graft named with its source candidate
+- Losing worktrees removed
+"""
+
+[[steps]]
+id = "verdict"
+title = "Verdict for {{ticket}}: verify and record"
+needs = ["graft"]
+labels = ["bout:verdict"]
+description = """
+Verify the synthesized artifact like any other (Definition of Done). Record the synthesis as a
+`decision` bead discovered-from {{ticket}} whose description has the sections strict mode requires:
+## Decision (base and grafts), ## Rationale (scores, judge verdict), ## Alternatives Considered
+(losing candidates and why). Then hand the ticket back: `bd unclaim {{ticket}}`,
+`bd update {{ticket}} --remove-label bout`, and pour a normal arena-round: its brief step sees the
+decision bead and skips straight to the review lenses on the grafted branch.
+
+## Acceptance Criteria
+- Synthesized artifact passes the CONSTRAINTS.md gates
+- Decision bead created, discovered-from {{ticket}}, with its three sections
+- {{ticket}} unclaimed and no longer labelled bout
+"""

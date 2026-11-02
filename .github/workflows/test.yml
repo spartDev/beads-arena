@@ -1,0 +1,27 @@
+name: test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  arena:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install bd
+        run: npm install -g @beads/bd@1.3.2
+      - name: Git identity for test repositories
+        run: |
+          git config --global user.email "ci@example.com"
+          git config --global user.name "arena-ci"
+      - name: Shell syntax
+        run: for f in hooks/*.sh bin/* tests/*.sh; do bash -n "$f"; done
+      - name: Hooks
+        run: bash tests/hooks.test.sh
+      - name: Formulas end to end
+        run: bash tests/formulas.test.sh

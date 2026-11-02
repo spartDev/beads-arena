@@ -1,0 +1,233 @@
+# arena-season: one epic, from value hypothesis to validated value.
+#
+# Fractal mapping:
+#   Hypothesis          -> frame, spec, spec-signoff
+#   Shippable increment -> slice, slice-signoff, build (children = tickets), integrate, release, ship
+#   Atomic execution    -> each ticket runs its own arena-round wisp
+#   Value validation    -> bake, validate, retro
+#
+# Pour:  bd mol pour arena-season --var name=dark-mode --var hypothesis="..."
+# Tickets are created as children of the `build` step, which cannot close while one is open.
+#
+# Human checkpoints are standalone gate steps (type = "gate", no [steps.gate] block): each one is
+# blocked by the work before it and only a human resolves it with `bd gate resolve`.
+# Timers are created at the moment they must start (`bd gate create --type=timer`), because a
+# timer gate counts from its creation and a gate poured with the formula would start too early.
+# Verified against bd 1.3.2.
+
+formula = "arena-season"
+description = "One epic end to end: frame with docs, slice into tracer-bullet tickets, one PR per ticket, ship, bake, validate the value hypothesis, feed the lessons back into the factory."
+version = 1
+type = "workflow"
+
+[vars.name]
+description = "Short kebab-case feature name, reused in titles, spec path and branch names"
+required = true
+pattern = "^[a-z0-9][a-z0-9-]*$"
+
+[vars.hypothesis]
+description = "Value hypothesis: we believe <change> will cause <outcome> for <who>, measured by <signal> reaching <target>"
+required = true
+
+[vars.bake]
+description = "How long the change runs in production before value is judged (Go duration, h or m only)"
+default = "72h"
+pattern = "^[0-9]+[hm]$"
+
+[[steps]]
+id = "frame"
+title = "Frame {{name}}: grill with docs"
+labels = ["phase:frame", "lane:hitl"]
+description = """
+Run /arena:frame. Interview the human one question at a time until problem, users, constraints
+and non-goals are explicit. Sharpen vocabulary into GLOSSARY.md. Record every hard-to-reverse
+choice as a `decision` bead under the epic (description sections: ## Decision, ## Rationale,
+## Alternatives Considered) plus an ADR in docs/adr/. Questions nobody can answer yet become
+`spike` beads (sections: ## Goal, ## Findings), not guesses.
+
+Hypothesis under test: {{hypothesis}}
+
+## Acceptance Criteria
+- Every open question is answered, or filed as a spike or decision bead under the epic
+- GLOSSARY.md and docs/adr/ reflect the decisions taken
+- The hypothesis names a measurable signal and a target
+"""
+
+[[steps]]
+id = "spec"
+title = "Spec {{name}}: write the PRD"
+needs = ["frame"]
+labels = ["phase:frame"]
+description = """
+Turn the grilling into docs/specs/{{name}}.md: problem, users, stories, out of scope, success
+signal, risks. Link it on the epic: `bd update <epic> --spec-id docs/specs/{{name}}.md`.
+
+## Acceptance Criteria
+- Spec exists and is linked on the epic through spec-id
+- Out of scope is explicit
+"""
+
+[[steps]]
+id = "spec-signoff"
+title = "Human signs off the {{name}} spec"
+needs = ["spec"]
+type = "gate"
+labels = ["phase:frame", "lane:hitl"]
+description = """
+Human checkpoint. Read docs/specs/{{name}}.md, then `bd gate resolve <this-id> --reason "..."`
+to approve, or comment what must change and leave the gate open.
+
+## Acceptance Criteria
+- Resolved by the human with a reason
+"""
+
+[[steps]]
+id = "slice"
+title = "Slice {{name}} into tracer-bullet tickets"
+needs = ["spec-signoff"]
+labels = ["phase:slice"]
+description = """
+Run /arena:slice. Vertical slices only (schema + API + UI + tests), each sized for one fresh
+context window, prefactoring first, wide refactors as expand then migrate then contract.
+Create every ticket in one transaction with `bd create --graph`, parent_id = the build step,
+with blocking edges. Then `bd swarm validate <build-step>` (the build step is an epic).
+
+## Acceptance Criteria
+- Every ticket carries ## Acceptance Criteria and passes `bd lint`
+- No ticket is XL (more than about 5 files or more than 3 acceptance criteria)
+- `bd swarm validate <build-step>` passes, its waves posted as a comment on the season root
+"""
+
+[[steps]]
+id = "slice-signoff"
+title = "Human approves the {{name}} breakdown"
+needs = ["slice"]
+type = "gate"
+labels = ["phase:slice", "lane:hitl"]
+description = """
+Human checkpoint. Check granularity and blocking edges (`bd swarm status <epic>`,
+`bd graph <epic>`), then `bd gate resolve <this-id>`.
+
+## Acceptance Criteria
+- Resolved by the human with a reason
+"""
+
+[[steps]]
+id = "build"
+title = "Build {{name}}: one PR per ticket"
+needs = ["slice-signoff"]
+type = "epic"
+labels = ["phase:build", "arena:spawner"]
+description = """
+Spawner. The tickets from the slice step are this step's children. Run /arena:build to work
+the ready frontier (`bd ready --parent <this-id>`): one ticket, one worktree, one branch,
+one PR, each driven by an arena-round wisp. Tickets labelled `bout` go through /arena:bout first.
+bd refuses to close it while a child is open; /arena:patrol closes it once the last ticket lands.
+
+## Acceptance Criteria
+- Every child ticket is closed, with the merged PR referenced in its close reason
+- No child closed as wontfix without a comment explaining why
+"""
+
+[[steps]]
+id = "integrate"
+title = "Integrate {{name}}: end-to-end proof"
+needs = ["build"]
+labels = ["phase:ship"]
+description = """
+Prove the whole feature on the real artifact, not a proxy. Run the end-to-end path the spec
+describes and attach evidence (command output, screenshots, trace links) as a comment.
+Run the two-axis review (Standards, Spec) on the full diff since the epic started.
+
+## Acceptance Criteria
+- End-to-end evidence attached as a comment on this step
+- Two-axis review has no unresolved blocking finding
+"""
+
+[[steps]]
+id = "release"
+title = "Prepare the {{name}} release"
+needs = ["integrate"]
+labels = ["phase:ship"]
+description = """
+Release notes, rollback path, feature flag state, observability on the new critical path
+(log, metric or alert that would show the hypothesis signal and a regression).
+
+## Acceptance Criteria
+- Rollback path written in the release notes
+- Dashboard or alert exists for the new critical path and for the hypothesis signal
+"""
+
+[[steps]]
+id = "ship-approval"
+title = "Human approves the {{name}} deploy"
+needs = ["release"]
+type = "gate"
+labels = ["phase:ship", "lane:hitl"]
+description = """
+Human checkpoint. A deploy is irreversible: only the human resolves this gate.
+
+## Acceptance Criteria
+- Resolved by the human with a reason
+"""
+
+[[steps]]
+id = "ship"
+title = "Ship {{name}} and start the bake timer"
+needs = ["ship-approval"]
+labels = ["phase:ship"]
+description = """
+Deploy through the project's release path. Right after the deploy succeeds, start the bake:
+`bd gate create --type=timer --timeout {{bake}} --blocks <bake-step-id> --title "Bake {{name}} {{bake}}"`.
+
+## Acceptance Criteria
+- Deploy succeeded, evidence in a comment
+- Timer gate of {{bake}} created and blocking the bake step
+"""
+
+[[steps]]
+id = "bake"
+title = "Bake {{name}} in production for {{bake}}"
+needs = ["ship"]
+labels = ["phase:validate"]
+description = """
+Blocked by the timer gate created at ship time. /arena:patrol runs `bd gate check`, which closes
+it once {{bake}} has elapsed. A regression found meanwhile opens a P0 bug discovered-from this step
+(its description needs ## Steps to Reproduce).
+
+## Acceptance Criteria
+- Timer gate closed by `bd gate check`
+- Every P0 or P1 bug opened against {{name}} during the bake is closed
+"""
+
+[[steps]]
+id = "validate"
+title = "Validate value: did {{name}} move the signal?"
+needs = ["bake"]
+labels = ["phase:validate", "lane:hitl"]
+description = """
+Measure the signal named in the hypothesis against its target. Record the verdict as a
+`decision` bead discovered-from this step (sections ## Decision, ## Rationale, ## Alternatives
+Considered): keep, iterate (new season discovered-from this epic), or roll back.
+
+Hypothesis: {{hypothesis}}
+
+## Acceptance Criteria
+- Measured value, target and data source written in a comment
+- Verdict recorded as a decision bead linked discovered-from this step
+"""
+
+[[steps]]
+id = "retro"
+title = "Retro {{name}}: encode the lessons in the factory"
+needs = ["validate"]
+labels = ["phase:learn"]
+description = """
+Run /arena:retro over the whole season. Each lesson becomes a `chore` bead labelled `learning`,
+discovered-from this step, fixed at the highest level that works: architecture, then types,
+lint and CI, then tests, docs last. Durable project facts go to `bd remember`.
+
+## Acceptance Criteria
+- Every lesson is a learning bead, or is rejected in a comment with the reason
+- At least one lesson is encoded as an automated check, or the comment says why none applies
+"""

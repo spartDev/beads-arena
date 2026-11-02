@@ -1,0 +1,93 @@
+# arena-patrol: the referee's rounds. Ephemeral, run on a schedule or with /loop.
+#
+#   bd mol wisp arena-patrol
+#
+# Every sweep is independent and runs in parallel; the report fans them in.
+# When it is done: bd mol burn <wisp-id> (nothing worth keeping) or bd mol squash (it found something).
+
+formula = "arena-patrol"
+description = "Referee sweep: close satisfied gates, reclaim dead claims, chase open PRs, flag stale work, and page the human with everything waiting on them."
+version = 1
+type = "workflow"
+phase = "vapor"
+
+[[steps]]
+id = "gates"
+title = "Sweep gates"
+labels = ["patrol:gates"]
+description = """
+`bd gate check` closes satisfied timer, gh:pr and bead gates. Then land what merged:
+`bd ready --include-ephemeral --label round:land --json` lists rounds whose PR is merged. For each,
+run its land step (close the ticket with "merged PR #<n>", close the step, squash the wisp, remove
+the worktree). Finally try to close finished spawners: for each open epic labelled arena:spawner
+(`bd list --type epic --label arena:spawner --json`), `bd close <id> --reason "all children closed"`;
+bd refuses while any child is open, so a refusal is the normal answer.
+
+## Acceptance Criteria
+- `bd gate check` ran; every ready land step was run; spawners with no open child are closed
+"""
+
+[[steps]]
+id = "reclaim"
+title = "Reclaim dead claims"
+labels = ["patrol:reclaim"]
+description = """
+`bd reclaim --older-than 2h` returns to the ready queue the in_progress tickets whose 5-minute lease
+stopped being renewed more than two hours ago (implementers heartbeat at every step, so only dead
+workers qualify). It records the previous owner. List what came back.
+
+## Acceptance Criteria
+- Reclaimed ticket ids listed in the report, or "none"
+"""
+
+[[steps]]
+id = "prs"
+title = "Chase open PRs"
+labels = ["patrol:prs"]
+description = """
+For every ticket in status in_review (`bd list --status in_review --json`): read the PR checks and
+unresolved threads. Red CI or a new comment: hand the ticket to /arena:referee.
+
+## Acceptance Criteria
+- Each in_review ticket has a one-line status in the report (green, red, threads waiting)
+"""
+
+[[steps]]
+id = "stale"
+title = "Flag stale work"
+labels = ["patrol:stale"]
+description = """
+`bd stale`, and in_review tickets whose PR is already merged but whose round has no land step
+ready (a round lost along the way): `gh pr view <n> --json state` for each external-ref gh-<n>.
+Close those with "merged PR #<n>" after checking the merge commit.
+
+## Acceptance Criteria
+- Stale and orphan ids listed in the report
+"""
+
+[[steps]]
+id = "pit"
+title = "Page the human: the pit"
+labels = ["patrol:pit"]
+description = """
+List everything that only the human can move: open human gates (`bd gate list`), tickets labelled
+triage:needs-info or triage:ready-for-human, security or data escalations from review threads,
+tickets blocked for more than 24 hours. Rank by how much downstream work each one unblocks
+(`bd show <id> --json` dependent_count). Top three go at the top of the report.
+
+## Acceptance Criteria
+- Human queue ranked by unblocking power, top three called out
+"""
+
+[[steps]]
+id = "report"
+title = "Patrol report"
+needs = ["gates", "reclaim", "prs", "stale", "pit"]
+labels = ["patrol:report"]
+description = """
+One short report: the pit first (what the human must decide), then gates closed, claims
+reclaimed, PR status, stale work. Run `bd dolt push` when a remote exists.
+
+## Acceptance Criteria
+- Report delivered to the human, pit first
+"""

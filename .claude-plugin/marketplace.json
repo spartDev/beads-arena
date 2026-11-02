@@ -1,0 +1,15 @@
+{
+  "name": "spartdev",
+  "description": "Thomas Roux's Claude Code plugins: a Beads-backed SDLC arena.",
+  "owner": {
+    "name": "Thomas Roux",
+    "url": "https://github.com/SpartDev"
+  },
+  "plugins": [
+    {
+      "name": "arena",
+      "source": "./",
+      "description": "Beads-backed SDLC arena for Claude Code: from grilled idea to validated value, one PR per ticket."
+    }
+  ]
+}

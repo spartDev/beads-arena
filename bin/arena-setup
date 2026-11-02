@@ -1,0 +1,125 @@
+#!/usr/bin/env bash
+# arena-setup: turn the current git repository into an arena. Idempotent.
+#
+# Usage: arena-setup [prefix] [--strict|--lenient] [--user-formulas]
+#   prefix           issue prefix for bd init (default: derived from the repo name)
+#   --strict         refuse tickets without "## Acceptance Criteria" at creation (default)
+#   --lenient        warn instead of refusing
+#   --user-formulas  install formulas in ~/.beads/formulas instead of the repo
+#
+# Prints a JSON summary on stdout. Human-readable progress goes to stderr.
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
+TEMPLATES="$ROOT/templates"
+
+prefix=""; mode="strict"; formula_scope="repo"
+for arg in "$@"; do
+  case "$arg" in
+    --strict) mode="strict" ;;
+    --lenient) mode="lenient" ;;
+    --user-formulas) formula_scope="user" ;;
+    -*) echo "arena-setup: unknown flag $arg" >&2; exit 2 ;;
+    *) prefix="$arg" ;;
+  esac
+done
+
+need() { command -v "$1" >/dev/null 2>&1 || { echo "arena-setup: $1 is required" >&2; exit 1; }; }
+need git; need bd; need jq
+
+top="$(git rev-parse --show-toplevel 2>/dev/null)" || { echo "arena-setup: run inside a git repository" >&2; exit 1; }
+cd "$top"
+
+created=(); kept=(); notes=()
+
+# 1. Beads workspace
+if [ -d .beads ]; then
+  kept+=(".beads")
+else
+  [ -n "$prefix" ] || prefix="$(basename "$top" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9\n' '-' | cut -c1-8 | sed 's/-*$//')"
+  bd init --quiet --prefix "$prefix" >&2
+  created+=(".beads (prefix $prefix)")
+fi
+
+# 2. Configuration the arena relies on
+current_status="$(bd config get status.custom 2>/dev/null | tail -1 || true)"
+if [[ "$current_status" != *in_review* ]]; then
+  if [ -n "$current_status" ] && [[ "$current_status" != *"not set"* ]]; then
+    bd config set status.custom "$current_status,in_review:wip" >/dev/null
+  else
+    bd config set status.custom "in_review:wip" >/dev/null
+  fi
+  created+=("status in_review (wip)")
+fi
+if [ "$mode" = "strict" ]; then
+  bd config set validation.on-create error >/dev/null
+else
+  bd config set validation.on-create warn >/dev/null
+fi
+bd config set create.require-description true >/dev/null
+created+=("validation.on-create=$([ "$mode" = strict ] && echo error || echo warn)" "create.require-description=true")
+
+# 3. Formulas
+if [ "$formula_scope" = "user" ]; then dest="$HOME/.beads/formulas"; else dest="$top/.beads/formulas"; fi
+mkdir -p "$dest"
+for f in "$ROOT"/formulas/*.formula.toml; do
+  name="$(basename "$f")"
+  if [ -f "$dest/$name" ] && cmp -s "$f" "$dest/$name"; then
+    kept+=("formula $name")
+  else
+    cp "$f" "$dest/$name"
+    created+=("formula $name -> $dest")
+  fi
+done
+
+# 4. Repository documents (never overwrite existing ones)
+place() { # place <template> <target>
+  local src="$TEMPLATES/$1" dst="$2"
+  if [ -e "$dst" ]; then kept+=("$dst"); else mkdir -p "$(dirname "$dst")"; cp "$src" "$dst"; created+=("$dst"); fi
+}
+place issue-tracker.md docs/agents/issue-tracker.md
+place triage-labels.md docs/agents/triage-labels.md
+place domain.md docs/agents/domain.md
+place CONSTRAINTS.md CONSTRAINTS.md
+place GLOSSARY.md GLOSSARY.md
+place adr-0000-template.md docs/adr/0000-template.md
+place pull_request_template.md .github/pull_request_template.md
+mkdir -p .arena docs/specs
+[ -f .arena/.gitkeep ] || { touch .arena/.gitkeep; created+=(".arena/"); }
+
+# 5. CLAUDE.md arena section, between markers so reruns replace it in place
+section="$(cat "$TEMPLATES/CLAUDE.arena.md")"
+begin="<!-- arena:begin -->"; end="<!-- arena:end -->"
+if [ -f CLAUDE.md ] && grep -qF "$begin" CLAUDE.md; then
+  tmp="$(mktemp)"
+  awk -v b="$begin" -v e="$end" -v s="$section" '
+    $0 == b { print b; print s; skip = 1; next }
+    $0 == e { print e; skip = 0; next }
+    !skip { print }' CLAUDE.md > "$tmp"
+  mv "$tmp" CLAUDE.md
+  kept+=("CLAUDE.md (arena section refreshed)")
+else
+  { [ -f CLAUDE.md ] && printf '\n'; printf '%s\n%s\n%s\n' "$begin" "$section" "$end"; } >> CLAUDE.md
+  created+=("CLAUDE.md arena section")
+fi
+
+# 6. Checks the human should know about
+if grep -qs 'bd prime' .claude/settings.json .claude/settings.local.json; then
+  notes+=("Beads' own SessionStart hook (bd prime) is installed; the arena hook detects it and only adds the arena brief, so nothing is injected twice")
+fi
+if grep -qs 'BEGIN BEADS INTEGRATION' CLAUDE.md AGENTS.md; then
+  notes+=("The Beads integration block defaults to a conservative git profile; the arena section opts into scoped team-maintainer authority (own arena/* branches and PRs only)")
+fi
+command -v gh >/dev/null 2>&1 || notes+=("gh is missing: referee and merge gates need it")
+git remote get-url origin >/dev/null 2>&1 || notes+=("no git remote: PR steps and bd dolt push will be skipped")
+
+formulas="$(bd formula list --json 2>/dev/null | jq -c '[.[]?.name // .[]?.formula] | map(select(. != null and startswith("arena-")))' 2>/dev/null || echo '[]')"
+
+to_json() { if [ "$#" -eq 0 ]; then echo '[]'; else printf '%s\n' "$@" | jq -R . | jq -s .; fi; }
+jq -n \
+  --arg repo "$top" --arg mode "$mode" --arg prefix "$(bd config get issue_prefix 2>/dev/null | tail -1 || echo "$prefix")" \
+  --argjson created "$(to_json "${created[@]+"${created[@]}"}")" \
+  --argjson kept "$(to_json "${kept[@]+"${kept[@]}"}")" \
+  --argjson notes "$(to_json "${notes[@]+"${notes[@]}"}")" \
+  --argjson formulas "$formulas" \
+  '{repo: $repo, mode: $mode, prefix: $prefix, formulas: $formulas, created: $created, kept: $kept, notes: $notes, next: "/arena:frame <idea>"}'

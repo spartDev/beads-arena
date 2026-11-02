@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# arena-vitals: flow and learning metrics from Beads. Read-only.
+# Usage: arena-vitals [--since 30d] [--json] [--oneline] [--max-history 150]
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
+
+command -v bd >/dev/null 2>&1 || { echo "arena-vitals: bd not found on PATH" >&2; exit 1; }
+command -v node >/dev/null 2>&1 || { echo "arena-vitals: node not found on PATH (Node 22.6+ required)" >&2; exit 1; }
+
+major="$(node -p 'process.versions.node.split(".")[0]')"
+if [ "$major" -lt 22 ]; then
+  echo "arena-vitals: Node $(node --version) is too old, TypeScript stripping needs Node 22.6+" >&2
+  exit 1
+fi
+
+exec node --experimental-strip-types --no-warnings "$ROOT/scripts/vitals.mts" "$@"
