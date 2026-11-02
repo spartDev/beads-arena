@@ -3,6 +3,7 @@
 # runs a round to a (simulated) merge, a bout and a patrol, and checks every gate on the way.
 # Usage: tests/formulas.test.sh   (needs bd, jq, git on PATH; BD=/path/to/bd to override)
 set -euo pipefail
+command -v "${BD:-bd}" >/dev/null 2>&1 && "${BD:-bd}" version >/dev/null 2>&1 || { echo "bd not found or not runnable: install @beads/bd (unset CI, see README)"; exit 1; }
 PLUGIN="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
 BD="${BD:-bd}"
 WORK="$(mktemp -d)"; trap '[ -n "${KEEP:-}" ] && echo "workspace kept: $WORK" || rm -rf "$WORK"' EXIT

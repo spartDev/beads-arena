@@ -21,7 +21,8 @@ every state change is timestamped, which is what makes the vitals possible witho
 
 ## Install
 
-Prerequisites: `bd` 1.3+, `git`, `jq`, `gh` (authenticated), Node 22.6+.
+Prerequisites: `bd` 1.3+, `git`, `jq`, `gh` (authenticated), Node 22.6+. In CI, install bd with
+`env -u CI npm install -g @beads/bd`: the npm package skips its binary download when `CI` is set.
 
 ```
 claude plugin marketplace add SpartDev/beads-arena

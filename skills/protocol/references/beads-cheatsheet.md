@@ -117,3 +117,5 @@ as a plan key first, then as an existing bead id. Output: `{"ids": {"t1": "ar-7d
 14. `bd create --parent <id>` copies the parent's labels onto the child (a ticket under the build
     step would carry `arena:spawner` and `phase:build`). Pass `--no-inherit-labels`; graph plans
     with `parent_id` do not inherit.
+15. `npm install -g @beads/bd` skips the binary download when the `CI` variable is set (GitHub
+    Actions sets it), leaving a `bd` that fails at runtime. In CI: `env -u CI npm install -g @beads/bd`.

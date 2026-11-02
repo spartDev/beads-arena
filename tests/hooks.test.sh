@@ -2,6 +2,7 @@
 # Feeds real PreToolUse / SessionStart / Stop payloads to the arena hooks and checks each decision.
 # Usage: tests/hooks.test.sh   (needs bd, jq, git on PATH)
 set -uo pipefail
+command -v "${BD:-bd}" >/dev/null 2>&1 && "${BD:-bd}" version >/dev/null 2>&1 || { echo "bd not found or not runnable: install @beads/bd (unset CI, see README)"; exit 1; }
 
 PLUGIN="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
 H="$PLUGIN/hooks"
